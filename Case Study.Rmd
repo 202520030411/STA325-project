@@ -1,0 +1,372 @@
+---
+title: "Case Study"
+author: "Emi Pollard"
+date: "2023-10-20"
+output:
+  pdf_document: default
+  html_document: default
+---
+```{r}
+library(readr)
+```
+
+
+```{r load-data}
+test.data = read_csv("data-test.csv")
+train.data = read_csv("data-train.csv")
+```
+
+```{r}
+print(unique(train.data$Re))
+print(unique(test.data$Re))
+
+print(unique(train.data$Fr))
+print(unique(test.data$Fr))
+```
+
+# Goals + Overview 
+Job is to build a statistical model which achieve two goals:
+
+1. Prediction: For a new parameter setting of (Re, Fr, St), predict its particle cluster volume distribution in terms of its four raw moments. 
+
+2. Inference: Investigate and interpret how each parameter affects the probability distribution for particle cluster volume.
+
+# Predictive Modeling 
+## Ranges, Histograms, Transformations
+1. Take a look at the ranges and histograms of input and output variables. Do any of the variables require transformations? If so, what transformations are appropriate?
+
+```{r explore}
+head(train.data)
+summary(train.data)
+```
+
+
+```{r range-histogram}
+# predictor ranges
+print(range(train.data$St))
+print(range(train.data$Re))
+print(range(train.data$Fr))
+
+# predictor histograms 
+par(mfrow=c(2,3))
+hist(train.data$St, main="Histogram of St", xlab="St")
+hist(train.data$Re, main="Histogram of Re", xlab="Re")
+hist(train.data$Fr, main="Histogram of Fr", xlab="Fr")
+
+# response ranges
+print(range(train.data$R_moment_1))
+print(range(train.data$R_moment_2))
+print(range(train.data$R_moment_3))
+print(range(train.data$R_moment_4))
+
+
+# response moment histograms
+par(mfrow=c(2,2))
+hist(train.data$R_moment_1, main="Histogram of R_moment_1", xlab="R_moment_1")
+hist(train.data$R_moment_2, main="Histogram of R_moment_2", xlab="R_moment_2")
+hist(train.data$R_moment_3, main="Histogram of R_moment_3", xlab="R_moment_3")
+hist(train.data$R_moment_4, main="Histogram of R_moment_4", xlab="R_moment_4")
+```
+Appropriateness of transformations (research)
+sqrt(): suitable for right-skewed data, moderate transformation, useful when data contains zeros
+x^2: suitable for left-skewed data, intensified the skewness when applied to right skew, ensure no negative values when applying this transformation 
+log(x): suitable for right-skewed data, an have significant impact, not defined for values less than or equal to 0 (so if data has zeros or negative values need to apply a constant shift before transformation)
+
+Predictors:
+
+St: St is particles' characteristics - size, density which is quantified by Stokes number (St). The range is (0.05, 3.00). The histogram has right skew meaning that the majority of the data points are near the lower end of the range. I might consider a square root transformation or logarithm transformation to address the skew. 
+
+Re: Re  is fluid turbulence, which is quantified by Reynolds number (Re). The range is (90, 398). The histogram has three distinct peaks which lie within the range, which suggests there might be three underlying groups or conditions. Skew is not apparent but I want to investigate the nature of the peaks. 
+
+Doing some research about Re (https://www.simscale.com/docs/simwiki/numerics-background/what-is-the-reynolds-number/) it appears that it can also be categorized into 3 categories: laminar regime for up to Re = 2300, transistion regime for 2300<Re<4000, and turbulent regime for Re>4000. Since the entire range of the Re variable is laminar regime I do not want to create a categorical variable. 
+
+Fr: Fr is gravitational acceleration, quantified by Froud number (Fr). From doing research online: (https://www.sciencedirect.com/topics/earth-and-planetary-sciences/froude-number#:~:text=If%20the%20value%20is%20greater,it%20is%20known%20as%20unity) 
+`Fr` > 1 the flow is termed a supercritical flow (fast and rapid flow state)
+`Fr` = 1 unity
+`Fr` < 1 the low is called subcritical flow (slow and tranquil flow state)
+
+The range is (0.052, Inf). The presence of Inf means that there might be erroneous or missing data. Handling the Inf value is very important - potential methods to deal with this value includes imputation or removing these values. The distribution appears bimodal with two peaks, which suggest that there might be two different underlying groups or conditions. Once again, we should investigate the nature of these two peaks. 
+
+I want to treat `Fr` as a categorical variable with the following categories >1, =1, <1 since the range includes multiple categories. 
+
+```{r Fr-categorical}
+library(dplyr)
+
+# update training data
+train.data = train.data %>%
+  mutate(Fr.cat = case_when(
+    is.infinite(Fr) ~ "supercritical",
+    Fr < 1 ~ "subcritical",
+    Fr == 1 ~ "unity",
+    Fr > 1 ~ "supercritical",
+    TRUE ~ NA_character_
+  )) %>%
+  mutate(Fr.cat = as.factor(Fr.cat))
+
+# update test data
+test.data = test.data %>%
+  mutate(Fr.cat = case_when(
+    is.infinite(Fr) ~ "supercritical",
+    Fr < 1 ~ "subcritical",
+    Fr == 1 ~ "unity",
+    Fr > 1 ~ "supercritical",
+    TRUE ~ NA_character_
+  )) %>%
+  mutate(Fr.cat = as.factor(Fr.cat))
+
+```
+
+
+Responses:
+
+Raw moment 1: E[X] is the first raw moment. The range is (0.00022202, 0.17234000). The histogram shows right skew the the majority of the values being on the lower end of the range closer to 0. A potential transformation I would explore is the logarithm transformation or the sqaure root transformation.
+
+Raw moment 2: E[X^2] is the second raw moment. The range is (1.0303e-04, 1.0443e+03). The distribution is highly right skewed with almost all values clustered near the lower end of the range. I might consider a logarithmic transformation or the square root transformation. 
+
+Raw moment 3: E[X^3] is the third raw moment. The range is (5.14e-05, 9.14e+06), which is quite large. The distribution is highly right skewed with almost all values clustered near the lower end of the range. This makes me think that there may be a few strong outliers near the top end of the range. I might consider a logarithmic transformation or a square root transformation. 
+
+Raw moment 4: E[X^4] is the fourth raw moment. The range is (4.16e-05, 8.00e+10), which is larger than the range for raw moment 3. The large upper bound is clear in the histogram where we see a few scattered high values. This variable exhibits high right skewness. I might consider a logarithmic transformation or a square root transformation. 
+
+Recommendations:
+1. I want to handle the Inf value for the predictor variable `Fr`. I want to understand why the values are infinite and determine how to handle them. 
+2. I want to try logarithmic transformations on the variables with skewed distributions. 
+3. I want to determine why the peaks exist for variables like `Re` and `Fr`.
+3. Some of the `R_moment` variables have really large ranges. I want to assess the impact of outliers for these response variables. 
+
+Let's try some of the transformations on `St`, `R_moment_1`, `R_moment_2`, `R_moment_3`, `R_moment_4`
+
+```{r predictor-transformation}
+# predictor transformation
+sqrt.St = sqrt(train.data$St)
+hist(sqrt.St, main="Histogram of sqrt(St)", xlab="sqrt(St)")
+
+log.St = log(train.data$St)
+hist(log.St, main="Histogram of log(St)", xlab="log(St)")
+```
+
+Given the histograms for the two types of transformations on `St` I think a log transformation is needed. I think that the log transformation has a more pronounced effect in reducing skew and creates a more symmetric histogram. 
+
+```{r response-transformation}
+# response transformation
+par(mfrow=c(2,2))
+# R1
+sqrt.R1 = sqrt(train.data$R_moment_1)
+hist(sqrt.R1, main="Histogram of sqrt(R_moment_1)", xlab="sqrt(R_moment_1)")
+
+log.R1 = log(train.data$R_moment_1)
+hist(log.R1, main="Histogram of log(R_moment_1)", xlab="log(R_moment_1)")
+
+# R2
+sqrt.R2 = sqrt(train.data$R_moment_2)
+hist(sqrt.R2, main="Histogram of sqrt(R_moment_2)", xlab="sqrt(R_moment_2)")
+
+log.R2 = log(train.data$R_moment_2)
+hist(log.R2, main="Histogram of log(R_moment_2)", xlab="log(R_moment_2)")
+
+# R3
+sqrt.R3 = sqrt(train.data$R_moment_3)
+hist(sqrt.R3, main="Histogram of sqrt(R_moment_3)", xlab="sqrt(R_moment_3)")
+
+log.R3 = log(train.data$R_moment_3)
+hist(log.R3, main="Histogram of log(R_moment_3)", xlab="log(R_moment_3)")
+
+# R4
+sqrt.R4 = sqrt(train.data$R_moment_4)
+hist(sqrt.R4, main="Histogram of sqrt(R_moment_4)", xlab="sqrt(R_moment_4)")
+
+log.R4 = log(train.data$R_moment_4)
+hist(log.R4, main="Histogram of log(R_moment_4)", xlab="log(R_moment_4)")
+```
+
+For `R_moment_1`, `R_moment_2`, `R_moment_3`, and `R_moment_4` I think the log transformation does a better job of distributing the data more uniformly than the square root transformation and better addresses the skewness. 
+
+Let's look at some interaction plots 
+```{r}
+interaction.plot(x.factor = log.St,trace.factor = train.data$Re,response = log.R1)
+interaction.plot(x.factor = log.St,
+                 trace.factor = train.data$Fr.cat,response = log.R1)
+interaction.plot(x.factor = train.data$Re,trace.factor = train.data$Fr.cat,
+                 response = log.R1)
+```
+
+The above interaction plots suggest 
+
+## Model 
+Linear Regression & Interaction Terms for R1 and R2
+
+### R1
+
+```{r dataframe}
+df = data.frame(log.St = log.St, Re = train.data$Re, Fr = train.data$Fr.cat,
+                  log.R1 = log.R1)
+
+test.df = data.frame(log.St = log(test.data$Re), Re = test.data$Re, 
+                     Fr = test.data$Fr.cat)
+```
+
+```{r}
+pairs(df)
+```
+
+
+```{r R1-linear-model}
+# R1
+lm.R1 = lm(log.R1 ~ log.St + Re + Fr, data = df)
+summary(lm.R1)
+
+par(mfrow=c(2,2))
+plot(lm.R1)
+```
+
+
+For the first raw moment `log(St)` and `Re` appear to be significant and the model has a high adjusted $R^2& and a small p-value. 
+
+The residuals vs fitted plot helps us to check for linearity and equal variance (homoscedasticity). The points do not appear to have a random scatter which suggests that the points might not have a purely linear relationship and there is a bit of a funnel shape suggesting unequal variances of residuals. The Normal Q-Q plot checks for the normality of residuals; the points largely follow the dashed line but they are some deviations from normality towards the end. The Scale-Location plot checks for homoscedasticity by looking at the spread of the standardized residuals; there is a bit of a curve pointing to unequal variance of residuals. The residuals vs leverage plot helps to identify influential data points; most of the data points are within the Cook's distance lines, which is a good sign, but there are a couple points (270 and 30) that are close to or slightly outside suggesting that they may be influential points. There might be some non-linearity in the data I am going to try adding polynomial or interaction terms to capture the non-linearity. 
+
+```{r R1-interaction-terms-1}
+lm.R1.2 = lm(log.R1 ~ log.St*Fr + Re, data = df)
+summary(lm.R1.2)
+
+par(mfrow=c(2,2))
+plot(lm.R1.2)
+
+# not significant
+```
+
+
+```{r R1-interaction-terms-2}
+lm.R1.3 = lm(log.R1 ~ log.St + Fr*Re, data = df)
+summary(lm.R1.3)
+
+par(mfrow=c(2,2))
+plot(lm.R1.3)
+
+# interaction is significant but plots are not improved by much 
+```
+
+```{r R1-interaction-terms-3}
+lm.R1.4 = lm(log.R1 ~ Fr + log.St*Re, data = df)
+summary(lm.R1.4)
+
+par(mfrow=c(2,2))
+plot(lm.R1.4)
+
+# not significant
+```
+
+Adding interaction terms to the linear model did not appear to help the fit of the linear model. 
+
+```{r response-predictor-EDA}
+predictors <- c("log.St", "Re")  # adjust this list based on your predictors
+
+par(mfrow=c(1, length(predictors)))  # setting up the plotting area for multiple plots
+
+for (var in predictors) {
+  plot(df[[var]], df$log.R1, main=paste("Scatterplot of", var, "vs. log.R1"), 
+       xlab=var, ylab="log.R1")
+}
+
+```
+
+Based on the EDA between the first raw moment and three predictors the first scatter plot suggests a nonlinear relationship between `log.St` and `log.R1` - the relationship appears to be U-shaped indicating a quadratic term might be appropriate. The second scatter plot makes it hard to tell if the relationship is linear or nonlinear due to the extreme clustering. 
+
+```{r}
+R1.poly <- lm(log.R1 ~ log.St + I(log.St^2) + Re + Fr, data = df)
+summary(R1.poly)
+
+par(mfrow=c(2,2))
+plot(R1.poly)
+```
+
+I don't think the quadratic relationship was particularly helpful. 
+
+```{r}
+model.5 <- lm(log.R1 ~ poly(log.St, degree = 3) + Re + Fr, data = df)
+summary(model.5)
+
+```
+
+Cubic relationship was not particularly helpful. 
+
+
+Let's try lasso and ridge regression?
+
+First lets split our train data into a train and test set for cv
+
+
+
+```{r prep-data}
+library(glmnet)
+x = model.matrix(log.R1~.,data = df)[,-1]
+y = df$log.R1
+grid = 10 ^ seq(10, -2, length = 100) # grid of values for lambda param
+```
+
+
+```{r}
+set.seed(17)
+train <- sample(1:nrow(x), floor(nrow(x)*0.8))
+test <- setdiff(1:nrow(x), train)
+y.test <- y[test]
+
+length(test) / (length(train) + length(test))
+```
+
+
+```{r}
+# fit lasso model on test vs train 
+lasso.model = glmnet(x[train, ], y[train], alpha = 1, lambda = grid)
+
+set.seed(1)
+cv.out = cv.glmnet(x[train,], y[train], alpha = 1)
+bestlam = cv.out$lambda.min
+lasso.pred = predict(lasso.model, s = bestlam, x[test, ])
+mean((lasso.pred - y.test)^2)
+
+out = glmnet(x, y, alpha = 0)
+lasso.coef = predict(out, type = 'coefficients', s = bestlam)
+lasso.coef
+```
+
+
+```{r ridge}
+# fit ridge regression model 
+ridge.model = glmnet(x[train, ], y[train], alpha = 0, lambda = grid, thresh = 1e-12)
+
+
+set.seed(1)
+cv.out2 <- cv.glmnet(x[train, ], y[train], alpha = 0)
+
+bestlam2 <- cv.out2$lambda.min
+
+ridge.pred <- predict(ridge.model, s = bestlam2, newx = x[test,])
+print(mean((ridge.pred - y.test)^2)) 
+
+out2 <- glmnet(x, y, alpha = 0)
+predict(out2, type = 'coefficients', s = bestlam2)
+```
+
+Lasso did not shrink any of the predictor variables to 0. 
+
+```{r}
+ridge.ls.pred <- predict(ridge.model, s = 0, x = x[train, ], y  = y[train], newx = x[test,], exact = T)
+print(mean((ridge.ls.pred - y.test)^2)) 
+```
+
+The lasso and ridge regression compared to least sqaures performed using cross validation with an 80% train, 20% test split do not largely improve the MSE on the test data. 
+
+
+# Questions 
+- How should we address Inf in `Fr`
+- How should we deal with grouping of `Fr` and `Re`
+- No test y data so how do we assess
+
+
+- cross validation for predictive error (LOOCV, 20% test and 80% train)
+- third raw moment is skewness should the distribution look skewed 
+- polynomial model 
+
+
+- format of thing to turn in 
+
+- use cross validation for penalizing models 
