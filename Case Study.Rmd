@@ -15,6 +15,10 @@ library(readr)
 test.data = read_csv("data-test.csv")
 train.data = read_csv("data-train.csv")
 ```
+```{r}
+print(train.data$R_moment_3)
+```
+
 
 ```{r}
 print(unique(train.data$Re))
@@ -38,6 +42,7 @@ Job is to build a statistical model which achieve two goals:
 ```{r explore}
 head(train.data)
 summary(train.data)
+print(length(train.data$Fr))
 ```
 
 
@@ -113,6 +118,24 @@ test.data = test.data %>%
     TRUE ~ NA_character_
   )) %>%
   mutate(Fr.cat = as.factor(Fr.cat))
+
+print(train.data)
+```
+
+
+```{r}
+
+# # Create a categorical variable that categorize Fr into subcritical, critical, and supercritical
+# train.data$Fr[train.data$Fr == "Inf"] <- 999
+# train.data$Fr.cat <- cut(train.data$Fr, breaks = c(0,0.99,1.001,1001),labels=c(1,2,3) )
+# train.data$Fr.cat<-as.numeric(train.data$Fr.cat)
+# hist(train.data$Fr.cat)
+# 
+# # transform test data 
+# test.data$Fr[test.data$Fr == "Inf"] <- 999
+# test.data$Fr.cat <- cut(test.data$Fr, breaks = c(0,0.99,1.001,1001),labels=c(1,2,3) )
+# test.data$Fr.cat<-as.numeric(test.data$Fr.cat)
+# hist(test.data$Fr.cat)
 
 ```
 
@@ -200,7 +223,7 @@ Linear Regression & Interaction Terms for R1 and R2
 df = data.frame(log.St = log.St, Re = train.data$Re, Fr = train.data$Fr.cat,
                   log.R1 = log.R1)
 
-test.df = data.frame(log.St = log(test.data$Re), Re = test.data$Re, 
+test.df = data.frame(log.St = log(test.data$St), Re = test.data$Re, 
                      Fr = test.data$Fr.cat)
 ```
 
@@ -218,6 +241,21 @@ par(mfrow=c(2,2))
 plot(lm.R1)
 ```
 
+```{r}
+predictions.1 = exp(predict(lm.R1, newdata = test.df))
+predictions.1
+mean(predictions.1)
+median(predictions.1)
+```
+
+```{r}
+max(train.data$R_moment_1)
+min(train.data$R_moment_1)
+mean(train.data$R_moment_1)
+median(train.data$R_moment_1)
+```
+
+
 
 For the first raw moment `log(St)` and `Re` appear to be significant and the model has a high adjusted $R^2& and a small p-value. 
 
@@ -230,6 +268,11 @@ summary(lm.R1.2)
 par(mfrow=c(2,2))
 plot(lm.R1.2)
 
+predictions.2 = exp(predict(lm.R1.2, newdata = test.df))
+predictions.2
+mean(predictions.2)
+median(predictions.2)
+
 # not significant
 ```
 
@@ -240,6 +283,9 @@ summary(lm.R1.3)
 
 par(mfrow=c(2,2))
 plot(lm.R1.3)
+
+predictions.1 = predict(lm.R1, newdata = test.df)
+predictions.1
 
 # interaction is significant but plots are not improved by much 
 ```
@@ -255,6 +301,15 @@ plot(lm.R1.4)
 ```
 
 Adding interaction terms to the linear model did not appear to help the fit of the linear model. 
+
+```{r}
+lm.R1.5 = lm(log.R1 ~ log.St + Re, data = df)
+summary(lm.R1.5)
+
+par(mfrow=c(2,2))
+plot(lm.R1.5)
+```
+
 
 ```{r response-predictor-EDA}
 predictors <- c("log.St", "Re")  # adjust this list based on your predictors
@@ -284,10 +339,13 @@ I don't think the quadratic relationship was particularly helpful.
 model.5 <- lm(log.R1 ~ poly(log.St, degree = 3) + Re + Fr, data = df)
 summary(model.5)
 
+predictions.5 = exp(predict(model.5, newdata = test.df))
+predictions.5
+mean(predictions.5)
+median(predictions.5)
 ```
 
 Cubic relationship was not particularly helpful. 
-
 
 Let's try lasso and ridge regression?
 
@@ -355,6 +413,27 @@ print(mean((ridge.ls.pred - y.test)^2))
 
 The lasso and ridge regression compared to least sqaures performed using cross validation with an 80% train, 20% test split do not largely improve the MSE on the test data. 
 
+# Combining results to CSV file
+
+```{r}
+# Moment 3
+predictions.j = c(3.886357e-05, 1.475666e-02, 1.879096e-02, 1.820132e-02, 1.844107e-02, 1.471815e-01, 1.370181e-01, 1.665740e-01, 6.844537e-01, 9.026600e+01, 1.633980e-01, 1.367654e+00, 4.287809e+03, 3.671818e+03, 7.840090e+00, 4.133851e+03, 3.944177e+03, 3.694706e+03, 7.607572e+00, 7.338876e+00, 6.997889e+00, 7.919925e+00, 1.162870e+01)
+length(predictions.j)
+```
+
+
+
+```{r}
+pred.df = data.frame(Moment.1 = predictions.1, Moment.3 = predictions.j)
+
+write.csv(pred.df, file = "predictions.csv", row.names = FALSE)
+```
+
+
+```{r}
+predictions.1
+```
+
 
 # Questions 
 - How should we address Inf in `Fr`
@@ -370,3 +449,5 @@ The lasso and ridge regression compared to least sqaures performed using cross v
 - format of thing to turn in 
 
 - use cross validation for penalizing models 
+
+
