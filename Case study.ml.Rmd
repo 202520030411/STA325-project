@@ -9,12 +9,16 @@ R_moment_4 prediction
 ```{r}
 data <- read.csv("data-train.csv")
 hist(data$R_moment_4)
-hist(log(data1$R_moment_4))#log transformation of Rmoment4
-data$r4<-log(data1$R_moment_4)
+hist(log(data$R_moment_4))#log transformation of Rmoment4
+hist(data$R_moment_4^0.5)
+hist(data$R_moment_4^-2)
+hist(data$R_moment_4^-3)
+
 #histogram of predictors
 hist(data$St)
 hist(data$Re)
 hist(data$Fr)
+data$lSt<-log(data$St)
 # Create a categorical variable that categorize Fr into subcritical, critical, and supercritical
 data$Fr[data$Fr == "Inf"] <- 999
 data$cfr <- cut(data$Fr, breaks = c(0,0.99,1.001,1001),labels=c(1,2,3) )
@@ -25,9 +29,10 @@ data$lgfr=1/(1+exp(-data$Fr))
 data$lgfr
 hist(data$lgfr)
 #scatterplots
-plot(data$St,data$R_moment4, xlab="St", ylab="R_moment4")
-pairs(r4~ St+Re+cfr,data=data)#scatterplot of paired predictors and response variable 
-plot(data1$St,data1$R_moment_4)
+plot(data$lSt,data$R_moment4, xlab="lSt", ylab="R_moment4")
+pairs(r4~ lSt+Re+cfr,data=data)#scatterplot of paired predictors and response variable 
+plot(data$lSt,data$R_moment_4)
+plot(data$St,data$R_moment_4)
 
 
 
@@ -35,14 +40,14 @@ plot(data1$St,data1$R_moment_4)
 
 ```{r}
 #linear model by ordinary least square  
-lm.1<-lm(r4~St+Re+cfr,data=data)
+lm.1<-lm(r4~log(St)+Re+cfr,data=data)
 summary(lm.1)
 ```
 ```{r}
 #Ridge regression 
 library(glmnet)
 grid=10^seq(10,-2,length=100)
-Name=c("St", "Re","cfr")
+Name=c("lSt", "Re","cfr")
 train.x <- subset(data, select = Name)
 train.y<-subset(data, select="r4")
 train.x<-as.matrix(train.x)
@@ -61,8 +66,10 @@ interaction.plot(x.factor = data$St,trace.factor = data$Re,response = data$r4)
 interaction.plot(x.factor = data$St,trace.factor = data$cfr,response = data$r4)
 interaction.plot(x.factor = data$Re,trace.factor = data$cfr,response = data$r4)
 #add interaction terms 
-lm.2<-lm(r4~St+Re+Re*cfr,data=data)
+lm.2<-lm(r4~lSt+Re+Re*cfr,data=data)
+
 summary(lm.2)
+
 ```
 
 ```{r}
@@ -77,18 +84,21 @@ data$critical_cate
 data <- data %>%
   mutate(Sub = ifelse(critical_cate == "sub", 1, 0))
 #perform regression 
-dummy1 <- lm(data$r4 ~ St+Re+Sub, data = data)
-summary(gamstep)
+dummy1 <- lm(data$r4 ~ log(St)+Re+Sub, data = data)
+summary(dummy1)
 
 ```
 
 
 ```{r}
 #natural spline
-gam1=lm(r4~ns(St)+ns(Re) +ns(cfr),data=data)
+install.packages("splines")
+library("splines")
+
+gam1=lm(r4~ns(lSt)+ns(Re) +ns(cfr),data=data)
 summary(gam1)
 
-gam2<-lm(r4~ns(St)+ns(Re)+Sub, data=data)
+gam2<-lm(r4~ns(lSt)+ns(Re)+Sub, data=data)
 summary(gam2)
 ```
 
@@ -97,26 +107,26 @@ summary(gam2)
 set.seed(22)
 library(boot)
 
-lm.1=glm(r4~log(St)+Re+cfr,data=data)
+lm.1=glm(r4~lSt+Re+cfr,data=data)
   ridge.m4=cv.glmnet(x=train.x,y=train.y,alpha =0)
-  lm.2=glm(r4~St+Re+Re*cfr,data=data)
-  dummy1 =glm(r4 ~ St+Re+Sub, data = data)
-  gamcfr<-glm(r4~ns(St)+ns(Re) +ns(cfr),data=data)
-  gamdum<-glm(r4~ns(St)+ns(Re)+Sub, data=data)
+  lm.2=glm(r4~lSt+Re+Re*cfr,data=data)
+  dummy1 =glm(r4 ~ lSt+Re+Sub, data = data)
+  gamcfr<-glm(r4~ns(lSt)+ns(Re) +ns(cfr),data=data)
+  gamdum<-glm(r4~ns(lSt)+ns(Re)+Sub, data=data)
 results <- list()  # Store LOOCV results
 mname<-list()#store model names
 results[1]<-cv.glm(data=data, lm.1)$delta[1]
-mname[1]<-"linear ols with st, re, cfr"
+mname[1]<-"linear ols with lst, re, cfr"
 results[2]<- min(ridge.m4$cvm)
-mname[2]<-"ridge regression with st, re cfr"
+mname[2]<-"ridge regression with lst, re cfr"
 results[3]<-cv.glm(data=data, lm.2)$delta[1]
-mname[3]<-"ols with st, re cfr, and interaction re*cfr"
+mname[3]<-"ols with lst, re cfr, and interaction re*cfr"
 results[4]<-cv.glm(data=data, dummy1)$delta[1]
-mname[4]<-"ols regression with st, re, cfr and dummy variable sub"
+mname[4]<-"ols regression with lst, re and dummy variable sub"
 results[5]<-cv.glm(data, gamcfr)$delta[1]
-mname[5]<-"Generalized additive model with natural splines of st, re and cfr"
+mname[5]<-"Generalized additive model with natural splines of lst, re and cfr"
 results[6]<-cv.glm(data, gamdum)$delta[1]
-mname[6]<-"Generalized additive model with natural splines(ns) of st, ns of re and dummy variable sub "
+mname[6]<-"Generalized additive model with natural splines(ns) of lst, ns of re and dummy variable sub "
 results
 for (i in seq_along(results)) {
   cat("Model Name:", mname[[i]], "\n")
@@ -124,22 +134,32 @@ for (i in seq_along(results)) {
 }
   
 ```
+```{r}
+data.test<-read.csv("data-test.csv")
+predict.r4<-predict(lm.2, data=data.test)
+```
 
 R_moment_2 prediction 
 
 ```{r}
 #histogram of moment2
 hist(data$R_moment_2)
+hist(data$R_moment_2^-2)
+hist(log(data$R_moment_2))
 #paired scatterplot
-pairs(r2~ St+Re+cfr,data=data)
-plot(data$St, data$r2)
+pairs(r2~ lSt+Re+cfr,data=data)
+plot(data$lSt, data$r2)
 #log tranformation of moment2
 data$r2<-log(data$R_moment_2)
 
 #linear model least square 
-lm.3<-lm(r2~St+Re+cfr,data=data)
+lm.3<-lm(r2~lSt+Re+cfr,data=data)
+lm.sub<-lm(r2~lSt+Re+Sub, data=data)
+summary(lm.sub)
 summary(lm.3)
-
+predict(lm.3, data=data)
+predict(lm.sub, data=data)
+1.418403  /2
 #Ridge regression 
 library(glmnet)
 grid=10^seq(10,-2,length=100)
@@ -165,22 +185,25 @@ interaction.plot(x.factor = data$St,trace.factor = data$cfr,response = data$r2)
 interaction.plot(x.factor = data$Re,trace.factor = data$cfr,response = data$r2)
 
 #add interaction terms 
-lm.4<-lm(r2~St+Re+Re*cfr,data=data)
+lm.4<-lm(r2~lSt+Re+Re*cfr,data=data)
 summary(lm.4)
+lm.5<-lm(r2~lSt+Re+Re*Sub, data=data)
 
+summary(lm.5)
+anova(lm.3,lm.4)
 ```
 ```{r}
 #dummy variable 
-dum2 <- lm(data$r2 ~ St+Re+Sub, data = data)
+dum2 <- lm(data$r2 ~ lSt+Re+Sub, data = data)
 summary(dum2)
 
 ```
 
 ```{r}
 #natural spline
-gam1=lm(r2~ns(St)+ns(Re) +ns(cfr),data=data)
+gam1=lm(r2~ns(lSt)+ns(Re) +ns(cfr),data=data)
 summary(gam1)
-gam2<-lm(r2~ns(St)+ns(Re)+Sub, data=data)
+gam2<-lm(r2~ns(lSt)+ns(Re)+Sub, data=data)
 summary(gam2)
 ```
 
@@ -192,10 +215,11 @@ library(boot)
 
 lm.3=glm(r2~log(St)+Re+cfr,data=data)
 ridge.m2=cv.glmnet(x=train.x,y=train.y2,alpha =0)
-lm.4<-glm(r2~St+Re+cfr+Re*cfr,data=data)
-dum2 <- glm(r2 ~ St+Re+Sub, data = data)
-gamcfr<-glm(r2~ns(St)+ns(Re) +ns(cfr),data=data)
-gamdum<-glm(r2~ns(St)+ns(Re)+Sub, data=data)  
+lm.4<-glm(r2~lSt+Re+cfr+Re*cfr,data=data)
+data
+dum2 <- glm(r2 ~ lSt+Re+Sub, data = data)
+gamcfr<-glm(r2~ns(lSt)+ns(Re) +ns(cfr),data=data)
+gamdum<-glm(r2~ns(lSt)+ns(Re)+Sub, data=data)  
 results <- list()  # Store LOOCV results
 results[1]<-cv.glm(data=data, lm.3)$delta[1]
 results[2]<- min(ridge.m2$cvm)
@@ -204,21 +228,50 @@ results[4]<-cv.glm(data=data, dum2)$delta[1]
 results[5]<-cv.glm(data, gamcfr)$delta[1]
 results[6]<-cv.glm(data, gamdum)$delta[1]
 results
-mname[1]<-"linear ols with st, re, cfr"
-mname[2]<-"ridge regression with st, re cfr"
-mname[3]<-"ols with st, re cfr, and interaction re*cfr"
-mname[4]<-"ols regression with st, re, cfr and dummy variable sub"
-mname[5]<-"Generalized additive model with natural splines of st, re and cfr"
-mname[6]<-"Generalized additive model with natural splines(ns) of st, ns of re and dummy variable sub "
+mname[1]<-"linear ols with lst, re, cfr"
+mname[2]<-"ridge regression with lst, re cfr"
+mname[3]<-"ols with lst, re cfr, and interaction re*cfr"
+mname[4]<-"ols regression with lst, re, and dummy variable sub"
+mname[5]<-"Generalized additive model with natural splines of lst, re and cfr"
+mname[6]<-"Generalized additive model with natural splines(ns) of lst, ns of re and dummy variable sub "
 for (i in seq_along(results)) {
   cat("Model Name:", mname[[i]], "\n")
   cat("cv error:", results[[i]], "\n\n")
 }
 
 ```
+
+
 ```{r}
 
+#Prediction 
+data.test<-read.csv("data-test.csv")
+data.test
+data.test$Fr[data.test$Fr == "Inf"] <- 999
+data.test$cfr <- cut(data.test$Fr, breaks = c(0,0.99,1.001,1001),labels=c(1,2,3) )
+data.test$cfr<-as.numeric(data.test$cfr)
+data.test$lSt<-log(data.test$St)
+predict.r2<-predict(lm.4, data=data.test)
+exp(predict.r2)
+```
 
+
+```{r}
+data$R_moment_2
+```
+```{r}
+data.test <- read.csv("data-train.csv")
+# Create a categorical variable that categorize Fr into subcritical, critical, and supercritical
+data.test$Fr[data$Fr == "Inf"] <- 999
+data.test$cfr <- cut(data$Fr, breaks = c(0,0.99,1.001,1001),labels=c(1,2,3) )
+data.test$cfr<-as.numeric(data$cfr)
+data.test$lSt<-log(data$St)
+lm.4<-glm(r2~lSt+Re+cfr+Re*cfr,data=data)
+
+#Prediction 
+data.test2<-read.csv("data-test.csv")
+predict.r2<-predict(lm.4, newdata=data.test2)
+exp(predict.r2)
 
 ```
 
